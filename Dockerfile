@@ -3,7 +3,7 @@ MAINTAINER oleg@romanenko.ro
 
 RUN apt-get -q -y update && apt-get -q -y install apt-utils \
     && apt-get -q -y install gnupg gcc-8 g++-8 build-essential git libre2-dev libunwind-dev wget git autoconf \
-                             libltdl-dev flex bison texinfo
+                             libltdl-dev flex bison texinfo libcurl4-openssl-dev libcurl4
 
 # GCC
 RUN   update-alternatives --quiet --remove-all gcc \
@@ -76,6 +76,10 @@ CMD ["/bin/bash"]
 
 FROM ubuntu:18.04
 MAINTAINER oleg@romanenko.ro
+
+RUN apt-get -q -y update && apt-get -q -y install apt-utils \
+    && apt-get -q -y install gnupg gcc-8 g++-8 build-essential git libre2-dev libunwind-dev wget git autoconf \
+                             libltdl-dev flex bison texinfo libcurl4-openssl-dev libcurl4
 
 WORKDIR /conf
 ENTRYPOINT ["/app/peer_node"]
