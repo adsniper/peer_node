@@ -29,46 +29,33 @@
 
 using namespace sniper;
 
-const char* dbgResp =
-"{"
-	"\"result\": {"
-		"\"version\": \"0.135\","
-		"\"type\": \"Torrent\","
-		"\"mh_addr\": \"0x0082f61b9801defe974a21f1f1e067392fd0f675bafc928cf4\""
-"}"
-"}"
-;
-
-const char* logSplit = "---------------------------------------------";
-
-std::string Resolve(std::string domainName)
+bool ResolveName(std::string domainName,  std::vector<std::string>& newips, uint32_t& minTTL)
 {
     unsigned char nsbuf[PACKETSZ * 16] = {0};
     char dispbuf[PACKETSZ * 16] = {};
     if (res_init() == -1)
     {
         log_info("res_init failed.");
-        return "";
+        return false;
     }
     int l = res_query(domainName.c_str(), ns_c_any,
                             ns_t_a, nsbuf, sizeof(nsbuf));
     if (l < 0)
     {
         log_info("res_query returned a negative value.");
-        return "";
+        return false;
     }
     ns_msg msg;
     if (ns_initparse(nsbuf, l, &msg) == -1)
     {
         log_info("ns_initparse failed.");
-        return "";
+        return false;
     }
     size_t msgcnt = ns_msg_count(msg, ns_s_an);
     uint8_t ip[4];
     char ipstr[16];
     uint32_t minttl = 0;
     uint32_t curttl = 0;
-    std::vector<std::string> newips;
     for (size_t i = 0; i < msgcnt; ++i)
     {
         ns_rr rr;
@@ -92,11 +79,9 @@ std::string Resolve(std::string domainName)
             }
         }
     }
+    minTTL = minttl;
 
-    if (!newips.empty())
-        return newips[0];
-    else
-        return "";
+    return !newips.empty();
 }
 
 long CurrentTimeMS()
@@ -130,16 +115,13 @@ public:
 
     void SetAddresses(const std::vector<std::string>& newips)
     {
-        mtx.lock();
         ips.clear();
         for (size_t i = 0; i < newips.size(); ++i)
             ips.push_back({newips[i], 0});
-        mtx.unlock();
     }
 
     void StartTest()
     {
-        mtx.lock();
         for (size_t i = 0; i < ips.size(); ++i)
             ips[i].ts = accessTime(ips[i].ip);
         sortIPs();
@@ -155,7 +137,6 @@ public:
         }
         //Test
         PrintTimes();//
-        mtx.unlock();
     }
 
     void SetTestTimer()
@@ -259,7 +240,6 @@ private:
     const static int TIMEOUT = 3;
     uint32_t testInterval;
     event::loop_ptr loop;
-    std::mutex mtx;//?
     uint32_t peerNumber;
     DomainGroup& domainGroup;
     event::TimerRepeat* timer;
@@ -284,76 +264,31 @@ public:
 
 	bool Resolve()
 	{
-        unsigned char nsbuf[PACKETSZ * 16] = {0};
-        char dispbuf[PACKETSZ * 16] = {};
-        if (res_init() == -1)
-        {
-            log_info("res_init failed.");
-            return false;
-        }
-        int l = res_query(domainName.c_str(), ns_c_any,
-                            ns_t_a, nsbuf, sizeof(nsbuf));
-        if (l < 0)
-        {
-            log_info("res_query returned a negative value.");
-            return false;
-        }
-
-        ns_msg msg;
-        if (ns_initparse(nsbuf, l, &msg) == -1)
-        {
-            log_info("ns_initparse failed.");
-            return false;
-        }
-        size_t msgcnt = ns_msg_count(msg, ns_s_an);
-
-        uint8_t ip[4];
-        char ipstr[16];
         uint32_t minttl = 0;
-        uint32_t curttl = 0;
         std::vector<std::string> newips;
-        for (size_t i = 0; i < msgcnt; ++i)
-        {
-            ns_rr rr;
-            ns_parserr(&msg, ns_s_an, i, &rr);
-            ns_sprintrr(&msg, &rr, NULL,
-                        NULL, dispbuf, sizeof(dispbuf));
 
-            if (ns_rr_type(rr) == ns_t_a)
+        if (ResolveName(domainName, newips, minttl))
+        {
+            if (isIPListChanged(newips))
             {
-                curttl = ns_rr_ttl(rr);
-                memcpy(ip, ns_rr_rdata(rr), sizeof(ip));
-                memset(ipstr, 0, sizeof(ipstr));
-                snprintf(ipstr, sizeof(ipstr), "%u.%u.%u.%u",
-                            ip[0], ip[1], ip[2], ip[3]);
-                newips.push_back(ipstr);
-                if (minttl == 0)
-                    minttl = curttl;
-                else
+                log_info("IP list changed.");
+                if (!newips.empty())
                 {
-                    if (curttl < minttl)
-                        minttl = curttl;
+                    ips.assign(newips.begin(), newips.end());
+                    std::sort(ips.begin(), ips.end());
+                    ttl = minttl;
+                    if (speedTester)
+                        speedTester->StartTest();
                 }
+                PrintIPS();
             }
-        }
+            else
+                log_info("IP list not changed.");
 
-        if (isIPListChanged(newips))
-        {
-            log_info("IP list changed.");
-            if (!newips.empty())
-            {
-                ips.assign(newips.begin(), newips.end());
-                std::sort(ips.begin(), ips.end());
-                ttl = minttl;
-                if (speedTester)
-                    speedTester->StartTest();
-            }
-            PrintIPS();
+            return true;
         }
         else
-            log_info("IP list not changed.");
-
-        return !newips.empty();
+            return false;
 	}
 
     std::string GetDomainName()
@@ -374,11 +309,9 @@ public:
     //Test
     void PrintIPS()
     {
-        log_info(logSplit);
         for (size_t i = 0; i < ips.size(); ++i)
             log_info("{}", ips[i].c_str());
         log_info("TTL = {}", ttl);
-        log_info(logSplit);
     }
 
     void SetResolveTimer()

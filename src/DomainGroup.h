@@ -60,6 +60,6 @@ private:
     void* config;
 };
 
-std::string Resolve(std::string domainName);
+bool ResolveName(std::string domainName,  std::vector<std::string>& newips, uint32_t& minTTL);
 
 #endif

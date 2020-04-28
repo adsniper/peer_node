@@ -67,18 +67,23 @@ tuple<string, vector<net::Peer>> load_network_nodes(const fs::path& p, DomainGro
             else//Доменное имя
             {
                 uint16_t port = (uint16_t)*strings::fast_atoi64(cont[1]);
-                dgptr->AddDomain(std::string(cont[0]), port, sti, nodes.size());
                 string domain = std::string(cont[0]);
                 log_info("Insert peer for {}\n", domain.c_str());
-                std::string curip = Resolve(domain);
-                string_view ipsv(curip.data(), curip.size());
-                if (net::ip_from_sv(ipsv, ip))
+
+                std::vector<std::string> newips;
+                uint32_t minttl = 0;
+                if (ResolveName(domain, newips, minttl))
                 {
-                    if (!curip.empty())
+                    std::string curip = newips[0];
+                    string_view ipsv(curip.data(), curip.size());
+                    if (net::ip_from_sv(ipsv, ip))
+                    {
+                        dgptr->AddDomain(domain, port, sti, nodes.size());
                         nodes.emplace_back(ip, port);
+                    }
+                    else
+                        log_info("Can not convert string ip for domain {} to binary form.", domain);
                 }
-                else
-                    log_info("ip_from_sv error.");
             }
         }
     });
@@ -327,12 +332,19 @@ void Config::ChangePeer(uint32_t peerNumber, std::string ip, uint16_t port)
 {
     uint32_t binip;
     lock_net_mutex();
-    string_view ipsv(ip.data(), ip.size());
-    if (net::ip_from_sv(ipsv, binip))
+    try
     {
-        _network.nodes[peerNumber] = net::Peer(binip, port);
+        string_view ipsv(ip.data(), ip.size());
+        if (net::ip_from_sv(ipsv, binip))
+        {
+            _network.nodes[peerNumber] = net::Peer(binip, port);
+        }
+        unlock_net_mutex();
     }
-    unlock_net_mutex();
+    catch(...)
+    {
+        unlock_net_mutex();
+    }
 }
 
 } // namespace sniper

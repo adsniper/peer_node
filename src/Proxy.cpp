@@ -118,8 +118,15 @@ intrusive_ptr<http::client::Request> make_http_request(Config& config, const mh:
 
     req->method = http::client::Method::Post;
     config.lock_net_mutex();
-    req->url.set_domain(config.network());
-    config.unlock_net_mutex();
+    try
+    {
+        req->url.set_domain(config.network());
+        config.unlock_net_mutex();
+    }
+    catch(...)
+    {
+        config.unlock_net_mutex();
+    }
     // QS
     auto qs = cache::StringCache::get_unique(400);
     qs->append("pubk=");
